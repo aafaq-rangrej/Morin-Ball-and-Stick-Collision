@@ -40,6 +40,7 @@
 <label>v₀ <input type="range" id="v0" min="0.5" max="2" step="0.05" value="1" style="width:130px"><span id="v0v">1.00</span> ℓ/s</label>
 <label id="hl">h (hit height above centre) <input type="range" id="hh" min="0" max="0.5" step="0.005" value="0.4082" style="width:160px"><span id="hv"></span> ℓ</label>
 <button id="hs">h = ℓ/√6</button>
+<label>ball radius r <input type="range" id="rb" min="0" max="0.1" step="0.005" value="0.05" style="width:140px"><span id="rbv"></span> ℓ</label>
 </div>
 <div class="g">
 <div class="c"><h2>Final motion</h2><table id="res"></table><div class="n" id="note"></div></div>
@@ -53,7 +54,7 @@ let mode='e',v0=1,h=1/SQ,t=0,play=true,last=null;
 const css=n=>getComputedStyle(R).getPropertyValue(n).trim();
 // ---- Elastic case: event-driven rigid-body simulation (ball radius RB, stick = capsule of half-width RS) ----
 const RECOLLIDE=true; // false: only the first collision is resolved, afterwards ball and stick pass through each other
-const RB=.05,RS=.02,RR=RB+RS,DT=.001,STORE=4,TMAX=12;
+let RB=.05,RR=.07;const RS=.02,RMIN=.02,DT=.001,STORE=4,TMAX=12; // RB = hitbox radius (0 = point particle); drawn radius = max(RB,RMIN)
 let frames=[],colls=[],collP=[],cm0=0;
 function simElastic(){
   frames=[];colls=[];collP=[];const I=I12;
@@ -134,7 +135,7 @@ function draw(){
   const dot=(p,r,c)=>{g.fillStyle=c;g.beginPath();g.arc(X(p[0]),Y(p[1]),r,0,7);g.fill()};
   dot(o.sc,3.5,css('--bg'));
   // ball
-  dot(o.ball,RB*S,css('--ball'));
+  dot(o.ball,Math.max(RB,RMIN)*S,css('--ball'));
   // system CM
   const cm=o.cm;
   g.strokeStyle=css('--cm');g.lineWidth=2;g.beginPath();g.arc(X(cm[0]),Y(cm[1]),7,0,7);g.moveTo(X(cm[0])-10,Y(cm[1]));g.lineTo(X(cm[0])+10,Y(cm[1]));g.moveTo(X(cm[0]),Y(cm[1])-10);g.lineTo(X(cm[0]),Y(cm[1])+10);g.stroke();
@@ -173,7 +174,7 @@ function table(){
 }
 function setMode(m){mode=m;$('te').classList.toggle('on',m==='e');$('ti').classList.toggle('on',m==='i');
   $('hl').style.display=$('hs').style.display=m==='e'?'':'none';t=0;if(m==='e')simElastic();sync()}
-function sync(){$('tt').value=t;$('tv').textContent=t.toFixed(2);$('v0v').textContent=v0.toFixed(2);$('hv').textContent=h.toFixed(3);table();draw()}
+function sync(){$('tt').value=t;$('tv').textContent=t.toFixed(2);$('v0v').textContent=v0.toFixed(2);$('hv').textContent=h.toFixed(3);$('rbv').textContent=RB.toFixed(3)+(RB===0?' (point)':RB<RMIN?' (hitbox only)':'');table();draw()}
 function loop(ts){
   if(last!==null&&play){t+=(ts-last)/1000*parseFloat($('sp').value);if(t>TMAX)t=0;sync()}
   last=ts;requestAnimationFrame(loop)}
@@ -184,6 +185,7 @@ $('rs').onclick=()=>{t=0;sync()};
 $('tt').oninput=e=>{t=parseFloat(e.target.value);play=false;$('pp').textContent='Play';sync()};
 $('v0').oninput=e=>{v0=parseFloat(e.target.value);if(mode==='e')simElastic();sync()};
 $('hh').oninput=e=>{h=parseFloat(e.target.value);simElastic();sync()};
+$('rb').oninput=e=>{RB=parseFloat(e.target.value);RR=RB+RS;if(mode==='e')simElastic();sync()};
 $('hs').onclick=()=>{h=1/SQ;$('hh').value=h;simElastic();sync()};
 setMode('e');requestAnimationFrame(loop);
 })();
