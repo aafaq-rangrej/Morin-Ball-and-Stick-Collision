@@ -1,0 +1,191 @@
+<div id="bsim2">
+<style>
+#bsim2{
+--bg:#fafaf7;--surf:#fff;--tx:#1d1d1b;--mut:#6b6b66;--bd:#d9d8d2;--ball:#c2410c;--stick:#1d4ed8;--cm:#047857;--acc:#1d4ed8}
+@media (prefers-color-scheme:dark){#bsim2{--bg:#141413;--surf:#1e1e1c;--tx:#ecebe6;--mut:#9a9992;--bd:#363632;--ball:#fb923c;--stick:#60a5fa;--cm:#34d399;--acc:#60a5fa}}
+#bsim2.dk{--bg:#141413;--surf:#1e1e1c;--tx:#ecebe6;--mut:#9a9992;--bd:#363632;--ball:#fb923c;--stick:#60a5fa;--cm:#34d399;--acc:#60a5fa}
+#bsim2,#bsim2 *{box-sizing:border-box}
+#bsim2{background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;border-radius:10px}
+#bsim2 .w{max-width:980px;margin:0 auto;padding:14px}
+#bsim2 h1{font-size:19px;margin:0 0 8px}
+#bsim2 .tabs{display:flex;gap:6px;margin-bottom:10px}
+#bsim2 button,#bsim2 .tab{font:inherit;color:var(--tx);background:var(--surf);border:1px solid var(--bd);border-radius:8px;padding:6px 12px;cursor:pointer}
+#bsim2 .tab.on{border-color:var(--acc);color:var(--acc);font-weight:600}
+#bsim2 canvas{width:100%;height:auto;display:block;background:var(--surf);border:1px solid var(--bd);border-radius:10px}
+#bsim2 .row{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin:10px 0}
+#bsim2 select{font:inherit;color:var(--tx);background:var(--surf);border:1px solid var(--bd);border-radius:6px;padding:3px 6px}
+#bsim2 label{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px}
+#bsim2 input[type=range]{accent-color:var(--acc)}
+#bsim2 .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}
+#bsim2 .c{background:var(--surf);border:1px solid var(--bd);border-radius:10px;padding:10px 12px;overflow-x:auto}
+#bsim2 .c h2{font-size:13px;margin:0 0 6px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+#bsim2 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+#bsim2 td,#bsim2 th{padding:3px 6px;text-align:right;font-size:13px}
+#bsim2 th:first-child,#bsim2 td:first-child{text-align:left}
+#bsim2 th{color:var(--mut);font-weight:600}
+#bsim2 .n{font-size:13px;color:var(--mut)}
+#bsim2 .ok{color:var(--cm)}
+</style>
+<div class="w">
+<h1>Ball–stick collisions (Morin 7.5) – with re-collision</h1>
+<div class="tabs"><button class="tab on" id="te">Elastic</button><button class="tab" id="ti">Inelastic (sticks at end)</button></div>
+<canvas id="cv" width="960" height="400"></canvas>
+<div class="row">
+<button id="pp">Pause</button><button id="rs">Reset</button>
+<label>t <input type="range" id="tt" min="0" max="12" step="0.01" value="0" style="width:200px"><span id="tv">0.00</span> s</label>
+<label>speed <input type="range" id="sp" min="0.1" max="2" step="0.05" value="0.6" style="width:100px"></label>
+<label>frame of reference <select id="fr"><option value="lab">Lab</option><option value="sc">Stick centre</option><option value="cm">System CM</option><option value="cp">Collision point</option></select></label>
+</div>
+<div class="row">
+<label>v₀ <input type="range" id="v0" min="0.5" max="2" step="0.05" value="1" style="width:130px"><span id="v0v">1.00</span> ℓ/s</label>
+<label id="hl">h (hit height above centre) <input type="range" id="hh" min="0" max="0.5" step="0.005" value="0.4082" style="width:160px"><span id="hv"></span> ℓ</label>
+<button id="hs">h = ℓ/√6</button>
+</div>
+<div class="g">
+<div class="c"><h2>Final motion</h2><table id="res"></table><div class="n" id="note"></div></div>
+<div class="c"><h2>Conserved quantities (live, m = ℓ = 1)</h2><table id="cons"></table><div class="n">L about the fixed point at the stick’s initial centre; clockwise positive.</div></div>
+</div></div>
+<script>
+(function(){
+const R=document.getElementById('bsim2'),$=id=>R.querySelector('#'+id),cv=$('cv'),g=cv.getContext('2d');
+const I12=1/12, TP=1.0, S=170, SQ=Math.sqrt(6);
+let mode='e',v0=1,h=1/SQ,t=0,play=true,last=null;
+const css=n=>getComputedStyle(R).getPropertyValue(n).trim();
+// ---- Elastic case: event-driven rigid-body simulation (ball radius RB, stick = capsule of half-width RS) ----
+const RECOLLIDE=true; // false: only the first collision is resolved, afterwards ball and stick pass through each other
+const RB=.05,RS=.02,RR=RB+RS,DT=.001,STORE=4,TMAX=12;
+let frames=[],colls=[],collP=[],cm0=0;
+function simElastic(){
+  frames=[];colls=[];collP=[];const I=I12;
+  let st={x:0,y:0,th:0,vx:0,vy:0,w:0,bx:-RR-v0*TP,by:h,bvx:v0,bvy:0};
+  const adv=(s,d)=>({x:s.x+s.vx*d,y:s.y+s.vy*d,th:s.th+s.w*d,vx:s.vx,vy:s.vy,w:s.w,bx:s.bx+s.bvx*d,by:s.by+s.bvy*d,bvx:s.bvx,bvy:s.bvy});
+  function contact(s){
+    const ux=Math.sin(s.th),uy=Math.cos(s.th);
+    let q=(s.bx-s.x)*ux+(s.by-s.y)*uy;q=Math.max(-.5,Math.min(.5,q));
+    const px=s.x+q*ux,py=s.y+q*uy,nx=s.bx-px,ny=s.by-py,d=Math.hypot(nx,ny)||1e-12;
+    return{d,nx:nx/d,ny:ny/d,rx:px-s.x,ry:py-s.y};
+  }
+  const vn=(s,c)=>(s.bvx-(s.vx+s.w*c.ry))*c.nx+(s.bvy-(s.vy-s.w*c.rx))*c.ny;
+  function hit(s,c){ // elastic (e=1) impulse j along n; ω clockwise positive
+    const k=c.ry*c.nx-c.rx*c.ny,j=-2*vn(s,c)/(2+k*k/I);
+    s.bvx+=j*c.nx;s.bvy+=j*c.ny;s.vx-=j*c.nx;s.vy-=j*c.ny;s.w-=j*k/I;
+  }
+  frames.push({...st});let t=0,i=0;
+  while(t<TMAX){
+    const n1=adv(st,DT),c=contact(n1);
+    if((RECOLLIDE||colls.length===0)&&c.d<RR&&vn(n1,c)<0){
+      let lo=0,hi=DT;
+      for(let k=0;k<40;k++){const m=(lo+hi)/2;contact(adv(st,m)).d<RR?hi=m:lo=m}
+      st=adv(st,hi);const cc=contact(st);hit(st,cc);colls.push(t+hi);collP.push([st.x+cc.rx,st.y+cc.ry]);st=adv(st,DT-hi);
+    }else st=n1;
+    t+=DT;if(++i%STORE===0)frames.push({...st});
+  }
+  const f=frames[Math.round(colls[0]/(DT*STORE))];cm0=(f.bx+f.x)/2;
+}
+function model(t){
+  const o=model0(t);
+  if(mode==='e'){o.sc=o.piv;o.cp=pt(o,h);o.cm=[(o.ball[0]+o.piv[0])/2,(o.ball[1]+o.piv[1])/2]}
+  else if(o.pre){o.sc=[0,0];o.cp=[0,.5];o.cm=[o.ball[0]/2,.25]}
+  else{o.sc=pt(o,-.25);o.cp=pt(o,.25);o.cm=o.piv}
+  return o;
+}
+function model0(t){
+  const o={};
+  if(mode==='e'){
+    const f=frames[Math.min(frames.length-1,Math.round(t/(DT*STORE)))];
+    return{f,ball:[f.bx,f.by],piv:[f.x,f.y],th:f.th,smin:-.5,smax:.5,pre:!(colls.length&&t>=colls[0]),vb:f.bvx,vc:f.vx,w:f.w};
+  }
+  const vc=v0/2,w=6*v0/5;Object.assign(o,{vc,w});
+  if(t<TP){o.ball=[-v0*(TP-t),.5];o.piv=[0,0];o.th=0;o.smin=-.5;o.smax=.5;o.pre=true}
+  else{const s=t-TP;o.piv=[vc*s,.25];o.th=w*s;o.smin=-.75;o.smax=.25;o.pre=false;
+    o.ball=[o.piv[0]+.25*Math.sin(o.th),o.piv[1]+.25*Math.cos(o.th)]}
+  return o;
+}
+function org(o){const m=$('fr').value;return m==='lab'?[0,0]:o[m]}
+function cpts(){return mode==='e'?colls.map((tc,i)=>({t:tc,p:collP[i]})):[{t:TP,p:[0,.5]}]}
+function pt(o,s){return[o.piv[0]+s*Math.sin(o.th),o.piv[1]+s*Math.cos(o.th)]}
+function cons(o){
+  if(mode==='e'){const f=o.f;return{p:f.bvx+f.vx,L:f.by*f.bvx-f.bx*f.bvy+f.y*f.vx-f.x*f.vy+I12*f.w,K:(f.bvx**2+f.bvy**2+f.vx**2+f.vy**2+I12*f.w**2)/2}}
+  if(o.pre)return{p:v0,L:.5*v0,K:v0*v0/2};
+  const I=5/24;return{p:2*o.vc,L:.5*o.vc+I*o.w,K:(2*o.vc**2+I*o.w**2)/2};
+}
+function draw(){
+  const o=model(t),W=cv.width,H=cv.height,cy=H/2+10;
+  const og=org(o),X=x=>W/2+(x-og[0])*S, Y=y=>cy-(y-og[1])*S;
+  g.clearRect(0,0,W,H);
+  const mut=css('--mut'),bd=css('--bd');
+  // grid ticks
+  g.fillStyle=bd;
+  for(let gx=Math.floor((og[0]-W/2/S)*2)/2;gx<og[0]+W/2/S;gx+=.5)for(let gy=Math.floor((og[1]-(H-cy)/S)*2)/2;gy<og[1]+cy/S;gy+=.5)g.fillRect(X(gx)-1,Y(gy)-1,2,2);
+  g.fillStyle=mut;g.font='12px system-ui';g.fillRect(W-12-S,H-24,S,2);g.textAlign='right';g.fillText('ℓ',W-12,H-30);
+  g.fillText('frame: '+({lab:'lab',sc:'stick centre',cm:'system CM',cp:'collision point'})[$('fr').value]+' (non-rotating)',W-12,18);g.textAlign='left';
+  // trails
+  function trail(f,col){g.strokeStyle=col;g.globalAlpha=.55;g.lineWidth=1.5;g.beginPath();let st=false;
+    for(let u=t0;u<=t+1e-9;u+=.01){const mu=model(u),ou=org(mu),p=f(mu),x=W/2+(p[0]-ou[0])*S,y=cy-(p[1]-ou[1])*S;st?g.lineTo(x,y):g.moveTo(x,y);st=true}g.stroke();g.globalAlpha=1}
+  const t0=mode==='e'?colls[0]:TP;
+  if(t>t0){
+    trail(m=>m.ball,css('--ball'));
+    trail(m=>m.sc,css('--stick'));trail(m=>m.cm,css('--cm'));trail(m=>m.cp,mut);
+  }
+  // stick
+  const a=pt(o,o.smin),b=pt(o,o.smax);
+  g.strokeStyle=css('--stick');g.lineWidth=2*RS*S;g.lineCap='round';g.beginPath();g.moveTo(X(a[0]),Y(a[1]));g.lineTo(X(b[0]),Y(b[1]));g.stroke();
+  // stick centre / CM markers
+  const dot=(p,r,c)=>{g.fillStyle=c;g.beginPath();g.arc(X(p[0]),Y(p[1]),r,0,7);g.fill()};
+  dot(o.sc,3.5,css('--bg'));
+  // ball
+  dot(o.ball,RB*S,css('--ball'));
+  // system CM
+  const cm=o.cm;
+  g.strokeStyle=css('--cm');g.lineWidth=2;g.beginPath();g.arc(X(cm[0]),Y(cm[1]),7,0,7);g.moveTo(X(cm[0])-10,Y(cm[1]));g.lineTo(X(cm[0])+10,Y(cm[1]));g.moveTo(X(cm[0]),Y(cm[1])-10);g.lineTo(X(cm[0]),Y(cm[1])+10);g.stroke();
+  // velocity arrows
+  function arrow(p,vx,c){if(Math.abs(vx)<1e-6)return;const x0=X(p[0]),y0=Y(p[1]),x1=x0+vx*50;g.strokeStyle=c;g.fillStyle=c;g.lineWidth=2;
+    g.beginPath();g.moveTo(x0,y0);g.lineTo(x1,y0);g.stroke();const d=Math.sign(vx);g.beginPath();g.moveTo(x1+d*8,y0);g.lineTo(x1,y0-4);g.lineTo(x1,y0+4);g.fill()}
+  const e=.002,t1=Math.min(TMAX,t+e),t0v=Math.max(0,t-e),A=org(model(t1)),B=org(model(t0v)),vO=(A[0]-B[0])/(t1-t0v);
+  if(o.pre){arrow([o.ball[0],o.ball[1]+.08],v0-vO,css('--ball'));arrow([o.sc[0],o.sc[1]+.12],-vO,css('--stick'))}
+  else if(mode==='e'){arrow([o.ball[0],o.ball[1]+.08],o.vb-vO,css('--ball'));arrow([o.piv[0],o.piv[1]+.12],o.vc-vO,css('--stick'))}
+  else arrow([cm[0],cm[1]+.1],o.vc-vO,css('--cm'));
+  // collision points (events), and the material point of the first hit
+  g.strokeStyle=css('--ball');g.lineWidth=2;
+  for(const c of cpts()){if(c.t>t)continue;const oc=org(model(c.t)),x=W/2+(c.p[0]-oc[0])*S,y=cy-(c.p[1]-oc[1])*S;
+    g.beginPath();g.moveTo(x,y-9);g.lineTo(x+9,y);g.lineTo(x,y+9);g.lineTo(x-9,y);g.closePath();g.stroke()}
+  g.fillStyle=mut;g.beginPath();g.arc(X(o.cp[0]),Y(o.cp[1]),3,0,7);g.fill();
+  // legend
+  g.fillStyle=mut;g.font='12px system-ui';
+  g.fillText('● ball   ▌stick   ⊕ system CM   ◇ collision events   · first-hit point on stick',12,18);
+  if(!o.pre){g.fillText((mode==='e'?'collisions: '+colls.filter(c=>c<=t).length+'   ':'')+'ω = '+o.w.toFixed(3)+' rad/s'+(mode==='e'?'   v_ball = '+o.vb.toFixed(3)+'   v_stick = '+o.vc.toFixed(3):'   v_CM = '+o.vc.toFixed(3)),12,H-12)}
+  else g.fillText('approaching…  v₀ = '+v0.toFixed(2),12,H-12);
+}
+function table(){
+  const c0=cons(model(0)),c1=cons(model(t));
+  const f=x=>x.toFixed(4);
+  const r=(n,x,y)=>`<tr><td>${n}</td><td>${f(x)}</td><td>${f(y)}</td><td class="${Math.abs(x-y)<1e-6?'ok':''}">${Math.abs(x-y)<1e-6?'conserved':'Δ = '+f(y-x)}</td></tr>`;
+  $('cons').innerHTML='<tr><th></th><th>t = 0</th><th>now</th><th></th></tr>'+r('pₓ',c0.p,c1.p)+r('L',c0.L,c1.L)+r('KE',c0.K,c1.K);
+  if(mode==='e'){
+    const vc=2*v0/(2+h*h/I12),vb=v0-vc,w=h*vc/I12;
+    $('res').innerHTML=`<tr><td colspan="2" class="n">after 1st collision (analytic)</td></tr><tr><td>v_ball</td><td>${f(vb)}</td></tr><tr><td>v_stick,CM</td><td>${f(vc)}</td></tr><tr><td>ω</td><td>${f(w)}</td></tr><tr><td>collision times</td><td>${colls.slice(0,8).map(x=>x.toFixed(2)).join(', ')} s</td></tr>`;
+    $('note').innerHTML=(Math.abs(vb-vc)<1e-3?'<span class="ok">Equal speeds at h = ℓ/√6: v = v₀/2, ω = √6 v₀/ℓ.</span> ':'')+'Ball and stick are solid: later hits are resolved with elastic impulses (e = 1), so they can collide again.';
+  }else{
+    const a=model(TP+1),c=cons(a);
+    $('res').innerHTML=`<tr><td>v_CM</td><td>${f(a.vc)} (= v₀/2)</td></tr><tr><td>ω</td><td>${f(a.w)} (= 6v₀/5ℓ)</td></tr><tr><td>I_CM</td><td>5mℓ²/24</td></tr><tr><td>KE lost</td><td>${(100*(1-c.K/(v0*v0/2))).toFixed(1)} %</td></tr>`;
+    $('note').textContent='CM sits ℓ/4 below the top; L about the CM or any fixed point gives the same ω.';
+  }
+}
+function setMode(m){mode=m;$('te').classList.toggle('on',m==='e');$('ti').classList.toggle('on',m==='i');
+  $('hl').style.display=$('hs').style.display=m==='e'?'':'none';t=0;if(m==='e')simElastic();sync()}
+function sync(){$('tt').value=t;$('tv').textContent=t.toFixed(2);$('v0v').textContent=v0.toFixed(2);$('hv').textContent=h.toFixed(3);table();draw()}
+function loop(ts){
+  if(last!==null&&play){t+=(ts-last)/1000*parseFloat($('sp').value);if(t>TMAX)t=0;sync()}
+  last=ts;requestAnimationFrame(loop)}
+$('te').onclick=()=>setMode('e');$('ti').onclick=()=>setMode('i');
+$('fr').onchange=draw;
+$('pp').onclick=()=>{play=!play;$('pp').textContent=play?'Pause':'Play'};
+$('rs').onclick=()=>{t=0;sync()};
+$('tt').oninput=e=>{t=parseFloat(e.target.value);play=false;$('pp').textContent='Play';sync()};
+$('v0').oninput=e=>{v0=parseFloat(e.target.value);if(mode==='e')simElastic();sync()};
+$('hh').oninput=e=>{h=parseFloat(e.target.value);simElastic();sync()};
+$('hs').onclick=()=>{h=1/SQ;$('hh').value=h;simElastic();sync()};
+setMode('e');requestAnimationFrame(loop);
+})();
+</script>
+</div>
